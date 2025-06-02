@@ -1,0 +1,361 @@
+name: Performance & Load Testing
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      test_duration:
+        description: 'Test duration in minutes'
+        required: false
+        default: '10'
+        type: string
+      concurrent_users:
+        description: 'Number of concurrent users'
+        required: false
+        default: '50'
+        type: string
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # パフォーマンステスト
+  performance-test:
+    name: Performance Testing
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        # mainブランチでは全テスト、developとPRでは軽量テストのみ
+        test-type: ${{ github.ref == 'refs/heads/main' && fromJSON('["load", "stress", "spike"]') || fromJSON('["load"]') }}
+        
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+
+      - name: Install dependencies
+        run: bun install
+        working-directory: ./app
+
+      - name: Build application
+        run: npm run build
+        working-directory: ./app
+
+      - name: Start application
+        run: |
+          npm start &
+          sleep 10
+          curl -f http://localhost:3000 || exit 1
+        working-directory: ./app
+
+      - name: Install K6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+
+      - name: Create K6 test script
+        run: |
+          cat > performance-test.js << 'EOF'
+          import http from 'k6/http';
+          import { check, sleep } from 'k6';
+          import { Rate } from 'k6/metrics';
+
+          const errorRate = new Rate('errors');
+
+          export let options = {
+            scenarios: {
+              load_test: {
+                executor: 'ramping-vus',
+                stages: [
+                  { duration: '2m', target: __ENV.CONCURRENT_USERS || 10 },
+                  { duration: __ENV.TEST_DURATION || '5m', target: __ENV.CONCURRENT_USERS || 10 },
+                  { duration: '2m', target: 0 },
+                ],
+                gracefulRampDown: '30s',
+              },
+            },
+            thresholds: {
+              http_req_duration: ['p(95)<2000'], // 95% of requests must complete within 2s
+              http_req_failed: ['rate<0.1'], // Error rate must be less than 10%
+              errors: ['rate<0.1'],
+            },
+          };
+
+          // テストデータ
+          const explainResults = [
+            // テーブル形式
+            `+----+-------------+-------+------------+------+---------------+------+---------+------+------+----------+-------+
+          | id | select_type | table | partitions | type | possible_keys | key  | key_len | ref  | rows | filtered | Extra |
+          +----+-------------+-------+------------+------+---------------+------+---------+------+------+----------+-------+
+          |  1 | SIMPLE      | users | NULL       | ALL  | NULL          | NULL | NULL    | NULL | 1000 |   100.00 | NULL  |
+          +----+-------------+-------+------------+------+---------------+------+---------+------+------+----------+-------+`,
+            
+            // CSV形式
+            `"id","select_type","table","type","rows","Extra"
+          "1","SIMPLE","users","ALL","1000","Using where"`,
+            
+            // 垂直形式
+            `*************************** 1. row ***************************
+                     id: 1
+            select_type: SIMPLE
+                  table: users
+                   type: ALL
+                   rows: 1000`
+          ];
+
+          export default function() {
+            // ホームページアクセス
+            let response = http.get('http://localhost:3000');
+            check(response, {
+              'homepage loads': (r) => r.status === 200,
+              'homepage has title': (r) => r.body.includes('MySQL EXPLAIN分析ツール'),
+            }) || errorRate.add(1);
+
+            sleep(1);
+
+            // EXPLAIN解析APIのテスト（実際のAPIエンドポイントがある場合）
+            const explainData = explainResults[Math.floor(Math.random() * explainResults.length)];
+            
+            response = http.post('http://localhost:3000/api/analyze', 
+              JSON.stringify({ explainResult: explainData }),
+              { headers: { 'Content-Type': 'application/json' } }
+            );
+            
+            // APIが存在しない場合はスキップ
+            if (response.status !== 404) {
+              check(response, {
+                'analysis API responds': (r) => r.status === 200 || r.status === 400,
+                'response time OK': (r) => r.timings.duration < 1000,
+              }) || errorRate.add(1);
+            }
+
+            sleep(Math.random() * 2 + 1); // 1-3秒のランダム待機
+          }
+          EOF
+
+      - name: Run performance test - ${{ matrix.test-type }}
+        run: |
+          # ブランチとイベントタイプに応じてテスト設定を調整
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            # mainブランチ: フル強度テスト
+            case "${{ matrix.test-type }}" in
+              "load")
+                CONCURRENT_USERS=${{ github.event.inputs.concurrent_users || '20' }}
+                TEST_DURATION=${{ github.event.inputs.test_duration || '8' }}m
+                ;;
+              "stress")
+                CONCURRENT_USERS=${{ github.event.inputs.concurrent_users || '50' }}
+                TEST_DURATION=${{ github.event.inputs.test_duration || '10' }}m
+                ;;
+              "spike")
+                CONCURRENT_USERS=${{ github.event.inputs.concurrent_users || '100' }}
+                TEST_DURATION=${{ github.event.inputs.test_duration || '3' }}m
+                ;;
+            esac
+          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            # developブランチ: 中程度の強度
+            CONCURRENT_USERS=${{ github.event.inputs.concurrent_users || '10' }}
+            TEST_DURATION=${{ github.event.inputs.test_duration || '5' }}m
+          else
+            # PRの場合: 軽量テスト
+            CONCURRENT_USERS=${{ github.event.inputs.concurrent_users || '5' }}
+            TEST_DURATION=${{ github.event.inputs.test_duration || '3' }}m
+          fi
+          
+          echo "Running ${{ matrix.test-type }} test with $CONCURRENT_USERS users for $TEST_DURATION"
+          
+          CONCURRENT_USERS=$CONCURRENT_USERS TEST_DURATION=$TEST_DURATION \
+          k6 run --out json=performance-results-${{ matrix.test-type }}.json performance-test.js
+
+      - name: Upload performance results
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-results-${{ matrix.test-type }}
+          path: performance-results-${{ matrix.test-type }}.json
+
+  # パフォーマンス結果の分析
+  analyze-performance:
+    name: Analyze Performance Results
+    runs-on: ubuntu-latest
+    needs: [performance-test]
+    if: always()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download performance results
+        uses: actions/download-artifact@v4
+
+      - name: Analyze performance data
+        run: |
+          cat > analyze_performance.js << 'EOF'
+          const fs = require('fs');
+          
+          function analyzePerformanceResults() {
+            const results = {
+              timestamp: new Date().toISOString(),
+              summary: {},
+              recommendations: []
+            };
+
+            // 各テストタイプの結果を分析
+            ['load', 'stress', 'spike'].forEach(testType => {
+              const filePath = `./performance-results-${testType}/performance-results-${testType}.json`;
+              
+              if (fs.existsSync(filePath)) {
+                try {
+                  const data = fs.readFileSync(filePath, 'utf8');
+                  const lines = data.trim().split('\n');
+                  const summary = JSON.parse(lines[lines.length - 1]); // 最後の行がサマリー
+                  
+                  results.summary[testType] = {
+                    vus_max: summary.metrics.vus_max?.value || 0,
+                    http_req_duration_p95: summary.metrics.http_req_duration?.values?.['p(95)'] || 0,
+                    http_req_failed_rate: summary.metrics.http_req_failed?.values?.rate || 0,
+                    http_reqs_total: summary.metrics.http_reqs?.values?.count || 0,
+                    data_received: summary.metrics.data_received?.values?.count || 0,
+                    iterations: summary.metrics.iterations?.values?.count || 0
+                  };
+
+                  // パフォーマンス推奨事項（ブランチ別閾値）
+                  const p95Duration = summary.metrics.http_req_duration?.values?.['p(95)'] || 0;
+                  const failureRate = summary.metrics.http_req_failed?.values?.rate || 0;
+                  
+                  // ブランチ別閾値設定
+                  const branch = process.env.GITHUB_REF_NAME || 'unknown';
+                  let p95Threshold = 3000; // デフォルト
+                  let failureThreshold = 0.1; // デフォルト
+                  
+                  if (branch === 'main') {
+                    p95Threshold = 1500; // mainは厳しい基準
+                    failureThreshold = 0.02;
+                  } else if (branch === 'develop') {
+                    p95Threshold = 2000; // developは中程度
+                    failureThreshold = 0.05;
+                  }
+
+                  if (p95Duration > p95Threshold) {
+                    results.recommendations.push({
+                      type: 'performance',
+                      severity: branch === 'main' ? 'critical' : 'high',
+                      test: testType,
+                      message: `Response time P95 (${p95Duration.toFixed(0)}ms) exceeds ${p95Threshold}ms threshold for ${branch} branch`
+                    });
+                  }
+
+                  if (failureRate > failureThreshold) {
+                    results.recommendations.push({
+                      type: 'reliability',
+                      severity: 'critical',
+                      test: testType,
+                      message: `Failure rate (${(failureRate * 100).toFixed(2)}%) exceeds ${(failureThreshold * 100).toFixed(1)}% threshold for ${branch} branch`
+                    });
+                  }
+
+                } catch (error) {
+                  console.error(`Error analyzing ${testType} results:`, error);
+                }
+              }
+            });
+
+            // 結果を保存
+            fs.writeFileSync('./performance-analysis.json', JSON.stringify(results, null, 2));
+            
+            console.log('Performance Analysis Complete');
+            console.log(JSON.stringify(results, null, 2));
+          }
+
+          analyzePerformanceResults();
+          EOF
+
+          GITHUB_REF_NAME="${{ github.ref_name }}" node analyze_performance.js
+
+      - name: Generate performance report
+        run: |
+          cat > generate_perf_report.md << 'EOF'
+          # Performance Test Report
+
+          **Test Date:** $(date)
+          **Commit:** ${{ github.sha }}
+          **Branch:** ${{ github.ref_name }}
+
+          ## Summary
+
+          | Test Type | Max VUs | P95 Response Time | Failure Rate | Total Requests |
+          |-----------|---------|-------------------|--------------|----------------|
+          EOF
+
+          # JSON結果からMarkdownテーブルを生成
+          node -e "
+          const fs = require('fs');
+          const results = JSON.parse(fs.readFileSync('./performance-analysis.json', 'utf8'));
+          
+          for (const [testType, metrics] of Object.entries(results.summary)) {
+            console.log(\`| \${testType} | \${metrics.vus_max} | \${metrics.http_req_duration_p95?.toFixed(0) || 'N/A'}ms | \${(metrics.http_req_failed_rate * 100)?.toFixed(2) || 'N/A'}% | \${metrics.http_reqs_total || 'N/A'} |\`);
+          }
+          " >> generate_perf_report.md
+
+          echo "" >> generate_perf_report.md
+          echo "## Recommendations" >> generate_perf_report.md
+
+          node -e "
+          const fs = require('fs');
+          const results = JSON.parse(fs.readFileSync('./performance-analysis.json', 'utf8'));
+          
+          if (results.recommendations.length === 0) {
+            console.log('✅ No performance issues detected!');
+          } else {
+            results.recommendations.forEach(rec => {
+              const icon = rec.severity === 'critical' ? '🚨' : rec.severity === 'high' ? '⚠️' : 'ℹ️';
+              console.log(\`\${icon} **\${rec.type.toUpperCase()}** (\${rec.test}): \${rec.message}\`);
+            });
+          }
+          " >> generate_perf_report.md
+
+      - name: Upload performance analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-analysis
+          path: |
+            performance-analysis.json
+            generate_perf_report.md
+
+      - name: Create performance issue if thresholds exceeded
+        uses: actions/github-script@v7
+        if: always()
+        with:
+          script: |
+            const fs = require('fs');
+            
+            try {
+              const results = JSON.parse(fs.readFileSync('./performance-analysis.json', 'utf8'));
+              
+              if (results.recommendations.length > 0) {
+                const report = fs.readFileSync('./generate_perf_report.md', 'utf8');
+                
+                await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: `⚡ Performance Issues Detected (${context.ref.replace('refs/heads/', '')}) - ${new Date().toISOString().split('T')[0]}`,
+                  body: `## Performance Test Results\n\n${report}\n\n**Branch:** ${context.ref.replace('refs/heads/', '')}\n**Event:** ${context.eventName}\n\n---\n🤖 Automatically created by Performance Testing workflow`,
+                  labels: ['performance', 'automated', 'needs-investigation', `branch:${context.ref.replace('refs/heads/', '')}`]
+                });
+              }
+            } catch (error) {
+              console.log('No performance analysis file found or error occurred:', error);
+            }
