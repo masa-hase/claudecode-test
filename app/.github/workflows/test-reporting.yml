@@ -1,0 +1,325 @@
+name: Test Reporting & Analytics
+
+on:
+  workflow_run:
+    workflows: ["Test Suite"]
+    types: [completed]
+
+jobs:
+  # テスト結果の詳細分析
+  analyze-test-results:
+    name: Analyze Test Results
+    runs-on: ubuntu-latest
+    if: always()
+
+    outputs:
+      test-trends: ${{ steps.analyze.outputs.trends }}
+      coverage-report: ${{ steps.coverage.outputs.report }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download workflow artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: ${{ github.event.workflow_run.id }}
+            });
+
+            for (const artifact of artifacts.data.artifacts) {
+              const download = await github.rest.actions.downloadArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifact.id,
+                archive_format: 'zip'
+              });
+              
+              const fs = require('fs');
+              fs.writeFileSync(`${artifact.name}.zip`, Buffer.from(download.data));
+            }
+
+      - name: Extract artifacts
+        run: |
+          for zip in *.zip; do
+            if [ -f "$zip" ]; then
+              unzip -o "$zip" -d "${zip%.zip}/"
+            fi
+          done
+
+      - name: Analyze test trends
+        id: analyze
+        run: |
+          cat > analyze_trends.js << 'EOF'
+          const fs = require('fs');
+          
+          function analyzeTrends() {
+            const trends = {
+              timestamp: new Date().toISOString(),
+              performance: {},
+              stability: {},
+              coverage: {}
+            };
+
+            // ユニットテスト分析
+            if (fs.existsSync('./unit-test-results/unit-test-results.json')) {
+              const unitResults = JSON.parse(fs.readFileSync('./unit-test-results/unit-test-results.json', 'utf8'));
+              
+              trends.performance.unit = {
+                totalTests: unitResults.numTotalTests,
+                passRate: (unitResults.numPassedTests / unitResults.numTotalTests * 100).toFixed(2),
+                avgDuration: unitResults.testResults?.reduce((acc, test) => 
+                  acc + (test.perfStats?.runtime || 0), 0) / unitResults.testResults?.length || 0
+              };
+            }
+
+            // E2Eテスト分析
+            if (fs.existsSync('./e2e-test-results/e2e-test-results.json')) {
+              const e2eResults = JSON.parse(fs.readFileSync('./e2e-test-results/e2e-test-results.json', 'utf8'));
+              
+              trends.performance.e2e = {
+                totalTests: e2eResults.stats?.expected || 0,
+                passRate: ((e2eResults.stats?.passed || 0) / (e2eResults.stats?.expected || 1) * 100).toFixed(2),
+                avgDuration: e2eResults.stats?.duration || 0
+              };
+            }
+
+            // 安定性分析（過去の実行と比較）
+            trends.stability.flaky_tests = [];
+            trends.stability.consistent_failures = [];
+
+            console.log('TRENDS=' + JSON.stringify(trends));
+            return trends;
+          }
+
+          analyzeTrends();
+          EOF
+
+          node analyze_trends.js
+          echo "trends=$(node analyze_trends.js | grep 'TRENDS=' | cut -d'=' -f2-)" >> $GITHUB_OUTPUT
+
+      - name: Generate coverage report
+        id: coverage
+        run: |
+          if [ -d "./unit-test-results/coverage" ]; then
+            # カバレッジサマリー生成
+            cat > generate_coverage.js << 'EOF'
+            const fs = require('fs');
+            
+            function generateCoverageReport() {
+              try {
+                if (fs.existsSync('./unit-test-results/coverage/coverage-summary.json')) {
+                  const coverage = JSON.parse(fs.readFileSync('./unit-test-results/coverage/coverage-summary.json', 'utf8'));
+                  
+                  const report = {
+                    total: coverage.total,
+                    files: Object.keys(coverage).filter(key => key !== 'total').length,
+                    timestamp: new Date().toISOString()
+                  };
+                  
+                  console.log('COVERAGE=' + JSON.stringify(report));
+                  return report;
+                }
+              } catch (error) {
+                console.log('COVERAGE={"error": "' + error.message + '"}');
+              }
+            }
+
+            generateCoverageReport();
+            EOF
+
+            node generate_coverage.js
+            echo "report=$(node generate_coverage.js | grep 'COVERAGE=' | cut -d'=' -f2-)" >> $GITHUB_OUTPUT
+          else
+            echo "report={\"error\": \"Coverage data not found\"}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload analysis results
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-analysis
+          path: |
+            *.json
+            ./unit-test-results/coverage/
+
+  # テスト結果のバッジ更新
+  update-badges:
+    name: Update README Badges
+    runs-on: ubuntu-latest
+    needs: [analyze-test-results]
+    if: github.event.workflow_run.conclusion != 'cancelled'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update test badges
+        run: |
+          # バッジ情報を取得
+          TEST_STATUS="${{ github.event.workflow_run.conclusion }}"
+          COVERAGE_DATA='${{ needs.analyze-test-results.outputs.coverage-report }}'
+          
+          # README.md のバッジセクションを更新
+          cat > update_badges.js << 'EOF'
+          const fs = require('fs');
+          
+          function updateBadges() {
+            const status = process.env.TEST_STATUS;
+            const coverageData = JSON.parse(process.env.COVERAGE_DATA || '{}');
+            
+            const testBadge = status === 'success' 
+              ? '![Tests](https://img.shields.io/badge/tests-passing-brightgreen)'
+              : '![Tests](https://img.shields.io/badge/tests-failing-red)';
+            
+            const coverageBadge = coverageData.total?.lines?.pct 
+              ? `![Coverage](https://img.shields.io/badge/coverage-${coverageData.total.lines.pct}%25-${coverageData.total.lines.pct > 80 ? 'brightgreen' : coverageData.total.lines.pct > 60 ? 'yellow' : 'red'})`
+              : '![Coverage](https://img.shields.io/badge/coverage-unknown-lightgrey)';
+            
+            if (fs.existsSync('./README.md')) {
+              let readme = fs.readFileSync('./README.md', 'utf8');
+              
+              // バッジセクションを追加/更新
+              const badgeSection = `
+## Status
+
+${testBadge} ${coverageBadge}
+
+`;
+              
+              // 既存のStatusセクションを置換、なければタイトル後に追加
+              if (readme.includes('## Status')) {
+                readme = readme.replace(/## Status[\s\S]*?(?=##|$)/, badgeSection);
+              } else {
+                readme = readme.replace(/(# MySQL EXPLAIN分析ツール[\s\S]*?)(\n## )/, `$1${badgeSection}$2`);
+              }
+              
+              fs.writeFileSync('./README.md', readme);
+              console.log('Badges updated successfully');
+            }
+          }
+          
+          updateBadges();
+          EOF
+
+          TEST_STATUS="${{ github.event.workflow_run.conclusion }}" \
+          COVERAGE_DATA='${{ needs.analyze-test-results.outputs.coverage-report }}' \
+          node update_badges.js
+
+      - name: Commit badge updates
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          if git diff --quiet; then
+            echo "No badge changes to commit"
+          else
+            git add README.md
+            git commit -m "🤖 Update test badges [skip ci]"
+            git push
+          fi
+
+  # Slack通知（オプション）
+  notify-slack:
+    name: Notify Slack
+    runs-on: ubuntu-latest
+    needs: [analyze-test-results]
+    if: always() && vars.SLACK_WEBHOOK_URL
+
+    steps:
+      - name: Send Slack notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ github.event.workflow_run.conclusion }}
+          webhook_url: ${{ vars.SLACK_WEBHOOK_URL }}
+          channel: '#dev-notifications'
+          fields: |
+            {
+              "repo": "${{ github.repository }}",
+              "commit": "${{ github.event.workflow_run.head_sha }}",
+              "branch": "${{ github.event.workflow_run.head_branch }}",
+              "workflow": "${{ github.event.workflow_run.name }}",
+              "status": "${{ github.event.workflow_run.conclusion }}",
+              "trends": ${{ needs.analyze-test-results.outputs.test-trends }},
+              "coverage": ${{ needs.analyze-test-results.outputs.coverage-report }}
+            }
+          custom_payload: |
+            {
+              "text": "Test Results for ${{ github.repository }}",
+              "attachments": [
+                {
+                  "color": "${{ github.event.workflow_run.conclusion == 'success' && 'good' || 'danger' }}",
+                  "fields": [
+                    {
+                      "title": "Repository",
+                      "value": "${{ github.repository }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Branch",
+                      "value": "${{ github.event.workflow_run.head_branch }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Status",
+                      "value": "${{ github.event.workflow_run.conclusion }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Workflow Run",
+                      "value": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}|View Details>",
+                      "short": true
+                    }
+                  ]
+                }
+              ]
+            }
+
+  # 長期的なテスト結果の保存（GitHub Pages用）
+  archive-results:
+    name: Archive Test Results
+    runs-on: ubuntu-latest
+    needs: [analyze-test-results]
+    if: always()
+
+    steps:
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+        continue-on-error: true
+
+      - name: Setup results directory
+        run: |
+          mkdir -p gh-pages/test-results
+          mkdir -p gh-pages/coverage-reports
+
+      - name: Archive current results
+        run: |
+          # タイムスタンプ付きでテスト結果を保存
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          
+          # テスト結果のアーカイブ
+          echo '{
+            "timestamp": "'$TIMESTAMP'",
+            "commit": "${{ github.event.workflow_run.head_sha }}",
+            "branch": "${{ github.event.workflow_run.head_branch }}",
+            "status": "${{ github.event.workflow_run.conclusion }}",
+            "trends": ${{ needs.analyze-test-results.outputs.test-trends }},
+            "coverage": ${{ needs.analyze-test-results.outputs.coverage-report }}
+          }' > gh-pages/test-results/result_${TIMESTAMP}.json
+          
+          # 最新結果のシンボリックリンク更新
+          cp gh-pages/test-results/result_${TIMESTAMP}.json gh-pages/test-results/latest.json
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./gh-pages
+          keep_files: true
