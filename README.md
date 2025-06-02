@@ -34,7 +34,7 @@ MySQLのEXPLAIN結果を解析し、パフォーマンス改善のための具�
 ## 📁 プロジェクト構造
 
 ```
-app/src/
+src/
 ├── domain/                    # ドメイン層
 │   ├── entities/             # エンティティ
 │   │   └── ExplainRow.ts     # EXPLAIN行エンティティ
@@ -69,9 +69,6 @@ app/src/
 ### インストール
 
 ```bash
-# appディレクトリに移動
-cd app
-
 # 依存関係のインストール
 bun install
 
@@ -85,8 +82,7 @@ bun dev
 
 ### ユニットテスト
 ```bash
-# appディレクトリで Jest によるユニットテスト実行
-cd app
+# Jest でユニットテスト実行
 npm test
 
 # ウォッチモード
@@ -95,8 +91,7 @@ npm run test:watch
 
 ### E2Eテスト
 ```bash
-# appディレクトリで Playwright による E2E テスト実行
-cd app
+# Playwright で E2E テスト実行
 npm run test:e2e
 
 # テストUI起動
@@ -105,8 +100,7 @@ npm run test:e2e:ui
 
 ### コード品質チェック
 ```bash
-# appディレクトリで Biome によるリント・フォーマットチェック
-cd app
+# Biome でリント・フォーマットチェック
 bun run check
 
 # 自動修正
