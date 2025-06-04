@@ -68,8 +68,11 @@ export function QueryOptimizationDisplay({
           {/* 変更点 */}
           <div className="mt-4 space-y-2">
             <h4 className="text-sm font-semibold text-gray-900">適用された最適化:</h4>
-            {optimizedQuery.changes.map((change, index) => (
-              <div key={index} className="bg-white rounded-md p-3 border border-green-100">
+            {optimizedQuery.changes.map((change) => (
+              <div
+                key={`${change.type}-${change.description}`}
+                className="bg-white rounded-md p-3 border border-green-100"
+              >
                 <div className="flex items-start justify-between">
                   <span className="text-sm font-medium text-gray-900">{change.description}</span>
                   <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">
@@ -100,9 +103,9 @@ export function QueryOptimizationDisplay({
           </div>
         ) : (
           <div className="space-y-3">
-            {suggestions.map((suggestion, index) => (
+            {suggestions.map((suggestion) => (
               <div
-                key={index}
+                key={`${suggestion.level}-${suggestion.title}-${suggestion.description}`}
                 className={`border rounded-lg p-4 ${
                   suggestion.level === 'critical'
                     ? 'border-red-300 bg-red-50'

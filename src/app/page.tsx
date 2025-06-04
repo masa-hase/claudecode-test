@@ -32,7 +32,7 @@ export default function Home() {
 
         {/* Mode Selector */}
         <div className="mb-6">
-          <div className="inline-flex rounded-md shadow-sm" role="group">
+          <fieldset className="inline-flex rounded-md shadow-sm border-0 p-0">
             <button
               type="button"
               onClick={() => handleModeChange('explain')}
@@ -55,7 +55,7 @@ export default function Home() {
             >
               SQLクエリを分析
             </button>
-          </div>
+          </fieldset>
         </div>
 
         {/* Analysis Input Area */}
@@ -113,7 +113,7 @@ export default function Home() {
             <div className="mb-8">
               <QueryOptimizationDisplay
                 suggestions={queryAnalyzer.suggestions}
-                optimizedQuery={queryAnalyzer.optimizedQuery}
+                optimizedQuery={queryAnalyzer.optimizedQuery || undefined}
               />
             </div>
           </>

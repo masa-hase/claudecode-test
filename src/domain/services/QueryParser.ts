@@ -132,40 +132,42 @@ export class QueryParser {
     const joinPatterns = [
       {
         regex:
-          /INNER\s+JOIN\s+(\w+)\s+\w*\s*ON\s+([^]+?)(?=\s+(?:LEFT|RIGHT|INNER|FULL)\s+JOIN|\s+WHERE|\s+GROUP|\s+ORDER|\s+HAVING|\s+LIMIT|$)/gi,
+          /INNER\s+JOIN\s+(\w+)\s+\w*\s*ON\s+([\s\S]+?)(?=\s+(?:LEFT|RIGHT|INNER|FULL)\s+JOIN|\s+WHERE|\s+GROUP|\s+ORDER|\s+HAVING|\s+LIMIT|$)/gi,
         type: 'INNER',
       },
       {
         regex:
-          /LEFT\s+JOIN\s+(\w+)\s+\w*\s*ON\s+([^]+?)(?=\s+(?:LEFT|RIGHT|INNER|FULL)\s+JOIN|\s+WHERE|\s+GROUP|\s+ORDER|\s+HAVING|\s+LIMIT|$)/gi,
+          /LEFT\s+JOIN\s+(\w+)\s+\w*\s*ON\s+([\s\S]+?)(?=\s+(?:LEFT|RIGHT|INNER|FULL)\s+JOIN|\s+WHERE|\s+GROUP|\s+ORDER|\s+HAVING|\s+LIMIT|$)/gi,
         type: 'LEFT',
       },
       {
         regex:
-          /RIGHT\s+JOIN\s+(\w+)\s+\w*\s*ON\s+([^]+?)(?=\s+(?:LEFT|RIGHT|INNER|FULL)\s+JOIN|\s+WHERE|\s+GROUP|\s+ORDER|\s+HAVING|\s+LIMIT|$)/gi,
+          /RIGHT\s+JOIN\s+(\w+)\s+\w*\s*ON\s+([\s\S]+?)(?=\s+(?:LEFT|RIGHT|INNER|FULL)\s+JOIN|\s+WHERE|\s+GROUP|\s+ORDER|\s+HAVING|\s+LIMIT|$)/gi,
         type: 'RIGHT',
       },
       {
         regex:
-          /FULL\s+JOIN\s+(\w+)\s+\w*\s*ON\s+([^]+?)(?=\s+(?:LEFT|RIGHT|INNER|FULL)\s+JOIN|\s+WHERE|\s+GROUP|\s+ORDER|\s+HAVING|\s+LIMIT|$)/gi,
+          /FULL\s+JOIN\s+(\w+)\s+\w*\s*ON\s+([\s\S]+?)(?=\s+(?:LEFT|RIGHT|INNER|FULL)\s+JOIN|\s+WHERE|\s+GROUP|\s+ORDER|\s+HAVING|\s+LIMIT|$)/gi,
         type: 'FULL',
       },
       {
         regex:
-          /CROSS\s+JOIN\s+(\w+)\s+\w*\s*ON\s+([^]+?)(?=\s+(?:LEFT|RIGHT|INNER|FULL)\s+JOIN|\s+WHERE|\s+GROUP|\s+ORDER|\s+HAVING|\s+LIMIT|$)/gi,
+          /CROSS\s+JOIN\s+(\w+)\s+\w*\s*ON\s+([\s\S]+?)(?=\s+(?:LEFT|RIGHT|INNER|FULL)\s+JOIN|\s+WHERE|\s+GROUP|\s+ORDER|\s+HAVING|\s+LIMIT|$)/gi,
         type: 'CROSS',
       },
     ];
 
     for (const pattern of joinPatterns) {
-      let match;
+      let match: RegExpExecArray | null;
       // exec()を使って全ての一致を検索
-      while ((match = pattern.regex.exec(query)) !== null) {
+      match = pattern.regex.exec(query);
+      while (match !== null) {
         joins.push({
           type: pattern.type as JoinInfo['type'],
           table: match[1],
           condition: match[2].trim(),
         });
+        match = pattern.regex.exec(query);
       }
       // 正規表現のlastIndexをリセット
       pattern.regex.lastIndex = 0;

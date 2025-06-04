@@ -36,8 +36,8 @@ export const QueryInfoDisplay: FC<QueryInfoDisplayProps> = ({ queryInfo }) => {
           <div className="md:col-span-2">
             <h4 className="text-sm font-medium text-gray-700 mb-1">JOIN</h4>
             <ul className="text-sm text-gray-900 font-medium space-y-1">
-              {queryInfo.joins.map((join, index) => (
-                <li key={index}>
+              {queryInfo.joins.map((join) => (
+                <li key={`${join.type}-${join.table}-${join.condition}`}>
                   {join.type} JOIN {join.table} ON {join.condition}
                 </li>
               ))}
@@ -49,8 +49,8 @@ export const QueryInfoDisplay: FC<QueryInfoDisplayProps> = ({ queryInfo }) => {
           <div className="md:col-span-2">
             <h4 className="text-sm font-medium text-gray-700 mb-1">WHERE条件</h4>
             <ul className="text-sm text-gray-900 font-medium space-y-1">
-              {queryInfo.whereConditions.map((condition, index) => (
-                <li key={index}>
+              {queryInfo.whereConditions.map((condition) => (
+                <li key={`${condition.column}-${condition.operator}-${condition.value}`}>
                   {condition.column} {condition.operator} {condition.value}
                 </li>
               ))}
