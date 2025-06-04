@@ -5,6 +5,7 @@ interface ExplainInputProps {
   onChange: (value: string) => void;
   onAnalyze: () => void;
   isLoading?: boolean;
+  error?: string | null;
 }
 
 export const ExplainInput: React.FC<ExplainInputProps> = ({
@@ -12,6 +13,7 @@ export const ExplainInput: React.FC<ExplainInputProps> = ({
   onChange,
   onAnalyze,
   isLoading = false,
+  error,
 }) => {
   return (
     <div className="bg-white rounded-lg shadow-md p-6">
@@ -19,10 +21,15 @@ export const ExplainInput: React.FC<ExplainInputProps> = ({
       <textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full h-64 p-3 border border-gray-400 rounded-md font-mono text-base text-gray-900 bg-gray-50 placeholder-gray-600 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        className="w-full h-64 p-4 border border-gray-400 rounded-md font-mono text-sm text-gray-900 bg-gray-50 placeholder-gray-600 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         placeholder="MySQLのEXPLAIN結果をここに貼り付けてください（テーブル形式、垂直形式、CSV形式対応）..."
         disabled={isLoading}
       />
+      {error && (
+        <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md text-red-700 text-sm">
+          {error}
+        </div>
+      )}
       <button
         type="button"
         onClick={onAnalyze}
