@@ -69,7 +69,7 @@ jobs:
         run: bun run build
 
       - name: Run E2E tests
-        run: bun run test:e2e -- --reporter=json --output-file=e2e-test-results.json
+        run: bun run test:e2e -- --reporter=json > e2e-test-results.json
 
       - name: Upload E2E test results
         uses: actions/upload-artifact@v4
