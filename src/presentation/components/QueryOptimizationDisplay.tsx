@@ -105,7 +105,7 @@ export function QueryOptimizationDisplay({
           <div className="space-y-3">
             {suggestions.map((suggestion) => (
               <div
-                key={`${suggestion.level}-${suggestion.title}-${suggestion.description}`}
+                key={`${suggestion.level}-${suggestion.type}-${suggestion.description}`}
                 className={`border rounded-lg p-4 ${
                   suggestion.level === 'critical'
                     ? 'border-red-300 bg-red-50'
