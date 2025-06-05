@@ -50,7 +50,7 @@ test.describe('MySQL Analyzer', () => {
     await analyzeButton.click();
 
     // Wait for error message
-    await expect(page.getByText('Invalid EXPLAIN format')).toBeVisible();
+    await expect(page.getByText('Unsupported EXPLAIN format')).toBeVisible();
   });
 
   test('should display tuning suggestions for problematic queries', async ({ page }) => {

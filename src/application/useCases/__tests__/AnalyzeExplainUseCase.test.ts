@@ -89,7 +89,7 @@ describe('AnalyzeExplainUseCase', () => {
     it('should throw error for invalid input', async () => {
       const input = 'Invalid EXPLAIN output';
 
-      await expect(useCase.execute(input)).rejects.toThrow('Invalid EXPLAIN format');
+      await expect(useCase.execute(input)).rejects.toThrow('Unsupported EXPLAIN format');
     });
   });
 });

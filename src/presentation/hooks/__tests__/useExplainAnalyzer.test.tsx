@@ -58,7 +58,9 @@ describe('useExplainAnalyzer', () => {
 
     expect(result.current.rows).toEqual([]);
     expect(result.current.suggestions).toEqual([]);
-    expect(result.current.error).toBe('Invalid EXPLAIN format');
+    expect(result.current.error).toBe(
+      'Unsupported EXPLAIN format. Supported formats: CSV, TSV, table with borders (+----+), vertical (\\G), or plain table format.'
+    );
     expect(result.current.isLoading).toBe(false);
   });
 
@@ -74,7 +76,9 @@ describe('useExplainAnalyzer', () => {
       await result.current.analyze();
     });
 
-    expect(result.current.error).toBe('Invalid EXPLAIN format');
+    expect(result.current.error).toBe(
+      'Unsupported EXPLAIN format. Supported formats: CSV, TSV, table with borders (+----+), vertical (\\G), or plain table format.'
+    );
 
     // Then, set new input
     act(() => {
