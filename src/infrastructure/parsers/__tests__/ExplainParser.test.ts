@@ -129,6 +129,50 @@ possible_keys: idx_age
       expect(result[0].hasFilesort()).toBe(true);
     });
 
+    it('should parse CSV format without quotes', () => {
+      const input = `id,select_type,table,partitions,type,possible_keys,key,key_len,ref,rows,filtered,Extra
+1,SIMPLE,users,NULL,ALL,NULL,NULL,NULL,NULL,1000,100.00,NULL`;
+
+      const result = parser.parse(input);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe(1);
+      expect(result[0].selectType.value).toBe('SIMPLE');
+      expect(result[0].table).toBe('users');
+      expect(result[0].type.value).toBe('ALL');
+      expect(result[0].rows.value).toBe(1000);
+      expect(result[0].filtered).toBe(100.0);
+    });
+
+    it('should parse CSV format without quotes with multiple rows', () => {
+      const input = `id,select_type,table,partitions,type,possible_keys,key,key_len,ref,rows,filtered,Extra
+1,SIMPLE,users,NULL,ALL,PRIMARY,NULL,NULL,NULL,1000,100.00,NULL
+1,SIMPLE,orders,NULL,ref,user_id,user_id,4,mydb.users.id,10,100.00,Using index`;
+
+      const result = parser.parse(input);
+
+      expect(result).toHaveLength(2);
+      expect(result[0].table).toBe('users');
+      expect(result[1].table).toBe('orders');
+      expect(result[1].type.value).toBe('ref');
+      expect(result[1].key).toBe('user_id');
+      expect(result[1].extra).toBe('Using index');
+    });
+
+    it('should parse CSV format with uppercase headers', () => {
+      const input = `ID,SELECT_TYPE,TABLE,PARTITIONS,TYPE,POSSIBLE_KEYS,KEY,KEY_LEN,REF,ROWS,FILTERED,EXTRA
+1,SIMPLE,users,NULL,ALL,NULL,NULL,NULL,NULL,1000,100.00,NULL`;
+
+      const result = parser.parse(input);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe(1);
+      expect(result[0].selectType.value).toBe('SIMPLE');
+      expect(result[0].table).toBe('users');
+      expect(result[0].type.value).toBe('ALL');
+      expect(result[0].rows.value).toBe(1000);
+    });
+
     it('should parse TSV format (MySQL Workbench tab-separated)', () => {
       const input = `id	select_type	table	partitions	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	users	NULL	ALL	NULL	NULL	NULL	NULL	1000	100.00	NULL`;

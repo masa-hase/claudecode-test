@@ -135,13 +135,15 @@ export class ExplainParser {
   }
 
   private isCSVFormat(input: string): boolean {
-    const firstLine = input.split('\n')[0];
+    const firstLine = input.split('\n')[0].toLowerCase();
     // Check if it looks like CSV header with common EXPLAIN columns
-    return (
-      firstLine.includes('"id"') &&
-      firstLine.includes('"select_type"') &&
-      firstLine.includes('"table"')
-    );
+    // Support both quoted and unquoted headers
+    const hasCommas = firstLine.includes(',');
+    const hasIdColumn = firstLine.includes('id');
+    const hasSelectTypeColumn = firstLine.includes('select_type');
+    const hasTableColumn = firstLine.includes('table');
+
+    return hasCommas && hasIdColumn && hasSelectTypeColumn && hasTableColumn;
   }
 
   /**
@@ -211,7 +213,7 @@ export class ExplainParser {
 
       const rowData: Record<string, string> = {};
       columns.forEach((col, index) => {
-        rowData[col] = values[index];
+        rowData[col.toLowerCase()] = values[index];
       });
 
       rows.push(this.createExplainRow(rowData));
@@ -231,7 +233,7 @@ export class ExplainParser {
       for (const line of lines) {
         const [key, value] = line.split(':').map((s) => s.trim());
         if (key && value !== undefined) {
-          rowData[key] = value;
+          rowData[key.toLowerCase()] = value;
         }
       }
 
@@ -262,7 +264,7 @@ export class ExplainParser {
 
       const rowData: Record<string, string> = {};
       headers.forEach((header, index) => {
-        rowData[header] = values[index];
+        rowData[header.toLowerCase()] = values[index];
       });
 
       rows.push(this.createExplainRow(rowData));
@@ -325,7 +327,7 @@ export class ExplainParser {
 
       const rowData: Record<string, string> = {};
       headers.forEach((header, index) => {
-        rowData[header] = values[index];
+        rowData[header.toLowerCase()] = values[index];
       });
 
       rows.push(this.createExplainRow(rowData));
@@ -437,9 +439,9 @@ export class ExplainParser {
           j === headers.length - 1
         ) {
           // Extra is the last column and might contain spaces
-          rowData[headers[j]] = values.slice(j).join(' ');
+          rowData[headers[j].toLowerCase()] = values.slice(j).join(' ');
         } else {
-          rowData[headers[j]] = values[j] || 'NULL';
+          rowData[headers[j].toLowerCase()] = values[j] || 'NULL';
         }
       }
 
@@ -483,7 +485,7 @@ export class ExplainParser {
       if (parts.length === headers.length) {
         const rowData: Record<string, string> = {};
         for (let j = 0; j < headers.length; j++) {
-          rowData[headers[j]] = parts[j];
+          rowData[headers[j].toLowerCase()] = parts[j];
         }
         rows.push(this.createExplainRow(rowData));
       } else {
@@ -492,7 +494,7 @@ export class ExplainParser {
 
         // Map all columns except Extra
         for (let j = 0; j < headers.length - 1; j++) {
-          rowData[headers[j]] = parts[j] || '';
+          rowData[headers[j].toLowerCase()] = parts[j] || '';
         }
 
         // Extra column gets all remaining parts joined
@@ -501,9 +503,9 @@ export class ExplainParser {
           headers[extraIndex].toLowerCase() === ExplainParser.EXPLAIN_COLUMNS.EXTRA.toLowerCase()
         ) {
           const extraParts = parts.slice(extraIndex);
-          rowData[headers[extraIndex]] = extraParts.join(' ');
+          rowData[headers[extraIndex].toLowerCase()] = extraParts.join(' ');
         } else {
-          rowData[headers[extraIndex]] = parts[extraIndex] || '';
+          rowData[headers[extraIndex].toLowerCase()] = parts[extraIndex] || '';
         }
 
         rows.push(this.createExplainRow(rowData));
